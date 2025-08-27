@@ -1,0 +1,17 @@
+{
+  "name": "orders-ms",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_ENV=development node src/index.js",
+    "start": "node src/index.js",
+    "outbox:worker": "node src/outboxWorker.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mongoose": "^8.5.1",
+    "pino": "^9.3.1",
+    "pino-http": "^10.2.0",
+    "zod": "^3.23.8"
+  }
+}
