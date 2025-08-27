@@ -1,0 +1,77 @@
+Run it
+
+Install deps
+
+pip install fastapi uvicorn "sqlalchemy[asyncio]" asyncpg pydantic
+
+
+Set DB URL (or use .env)
+
+export DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/analytics"
+
+
+Start API
+
+uvicorn src.main:app --reload --port 8000
+
+Example requests
+
+Top 5 (default) without filters:
+
+curl "http://localhost:8000/analytics/top-regions"
+
+
+Top 10 for Jan–Mar 2025, categories Electronics & Appliances:
+
+curl "http://localhost:8000/analytics/top-regions?start_date=2025-01-01&end_date=2025-03-31&category=Electronics&category=Appliances&top_n=10"
+
+Assumed table (minimal)
+-- Large fact table
+CREATE TABLE IF NOT EXISTS sales_data (
+  id            BIGSERIAL PRIMARY KEY,
+  sale_date     TIMESTAMPTZ NOT NULL, -- or DATE if you prefer
+  region        TEXT NOT NULL,
+  category      TEXT NOT NULL,
+  product_id    TEXT NOT NULL,
+  quantity      INTEGER NOT NULL,
+  unit_price    NUMERIC(12,2) NOT NULL,
+  total_amount  NUMERIC(14,2) GENERATED ALWAYS AS (quantity * unit_price) STORED
+);
+
+Performance tips for millions+ rows
+
+Indexes
+
+-- If queries filter by date & category often:
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sales_data_date_cat ON sales_data (sale_date, category);
+
+-- If region is grouped frequently, this helps the sort/group on some workloads:
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sales_data_region ON sales_data (region);
+
+-- For very large, append-only tables, a BRIN is tiny and fast for date range scans:
+CREATE INDEX CONCURRENTLY IF NOT EXISTS brin_sales_data_date ON sales_data USING BRIN (sale_date);
+
+
+Storage & stats
+
+Keep total_amount as a generated column to avoid recalculating.
+
+Run ANALYZE sales_data; after large loads (or autovacuum/analyze).
+
+Materialized view (optional, for very heavy use)
+
+CREATE MATERIALIZED VIEW mv_sales_by_region AS
+SELECT date_trunc('day', sale_date) AS day,
+       category,
+       region,
+       SUM(total_amount) AS total_sales,
+       COUNT(*) AS orders_count
+FROM sales_data
+GROUP BY 1,2,3;
+
+-- Index the MV for quick filters
+CREATE INDEX mv_sbr_day_cat ON mv_sales_by_region (day, category);
+CREATE INDEX mv_sbr_region ON mv_sales_by_region (region);
+
+-- Refresh strategy (nightly or incremental if using partitions)
+-- REFRESH MATERIALIZED VIEW CONCURRENTLY mv_sales_by_region;
